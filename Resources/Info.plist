@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>local.customnotch.CustomNotch</string>
+    <key>CFBundleName</key>
+    <string>Custom Notch</string>
+    <key>CFBundleDisplayName</key>
+    <string>Custom Notch</string>
+    <key>CFBundleExecutable</key>
+    <string>CustomNotch</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__BUILD__</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Custom Notch controls Music and Spotify and switches dark mode through System Events.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Custom Notch reads the battery level your AirPods broadcast, to show it in the island.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Custom Notch shows your next calendar event in the island.</string>
+    <key>NSFocusStatusUsageDescription</key>
+    <string>Custom Notch shows a short bubble when Do Not Disturb or another Focus turns on or off.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>The teleprompter listens so your script follows your voice. Speech is recognized on this Mac; no audio leaves it.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>The teleprompter recognizes your speech on this Mac so the script follows your voice. No audio leaves the Mac.</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
