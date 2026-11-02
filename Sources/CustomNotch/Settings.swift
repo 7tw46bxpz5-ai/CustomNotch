@@ -66,7 +66,7 @@ extension Color {
 // MARK: - Tiles
 
 enum TileKind: String, Codable, CaseIterable, Identifiable {
-    case music, weather, cards, controls, calendar, timer, chess
+    case music, weather, cards, controls, calendar, timer
 
     var id: String { rawValue }
 
@@ -83,11 +83,10 @@ enum TileKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .music: return "Music"
         case .weather: return "Weather"
-        case .cards: return "Calendar · Batteries · Slack"
+        case .cards: return "Calendar · Claude · Batteries · Slack"
         case .controls: return "Quick Controls"
         case .calendar: return "Next Event"
         case .timer: return "Focus Timer"
-        case .chess: return "Chess"
         }
     }
 }
@@ -99,15 +98,24 @@ struct TileConfig: Codable, Equatable, Identifiable {
 
     var id: TileKind { kind }
 
+    /// Four tiles of two cells: about 690 pt wide with music, 520 pt without (music hides while no player is open).
     static let defaults: [TileConfig] = [
-        TileConfig(kind: .music, visible: true, cells: 3),
+        TileConfig(kind: .music, visible: true, cells: 2),
         TileConfig(kind: .weather, visible: true, cells: 2),
-        TileConfig(kind: .cards, visible: true, cells: 3),
+        TileConfig(kind: .cards, visible: true, cells: 2),
         TileConfig(kind: .controls, visible: true, cells: 2),
         TileConfig(kind: .calendar, visible: false, cells: 2),
         TileConfig(kind: .timer, visible: false, cells: 2),
-        TileConfig(kind: .chess, visible: true, cells: 2),
     ]
+}
+
+/// Decodes a saved tile and skips kinds that no longer exist (the chess tile became a button in Quick Controls).
+private struct SavedTile: Decodable {
+    let config: TileConfig?
+
+    init(from decoder: Decoder) throws {
+        config = try? TileConfig(from: decoder)
+    }
 }
 
 /// Edits return a new list, so the island can resize its window before applying them.
@@ -267,13 +275,29 @@ final class Settings {
         prompterTextSize = PrompterTextSize(rawValue: defaults.string(forKey: Keys.prompterTextSize) ?? "") ?? .medium
         prompterWidth = PrompterWidth(rawValue: defaults.string(forKey: Keys.prompterWidth) ?? "") ?? .medium
         chessOpponent = ChessOpponent(rawValue: defaults.string(forKey: Keys.chessOpponent) ?? "") ?? .sonnet
-        // Keep the saved order and add any tile kinds introduced since.
-        var tiles = Self.load([TileConfig].self, from: defaults, key: Keys.tiles) ?? TileConfig.defaults
+        // Keep the saved order and add any tile kinds introduced since. Layouts from before the compact
+        // redesign (version 2) move to the new defaults once.
+        let saved = Self.load([SavedTile].self, from: defaults, key: Keys.tiles)?.compactMap(\.config)
+        var tiles = saved ?? TileConfig.defaults
+        let migrating = saved != nil && defaults.integer(forKey: Keys.layoutVersion) < Self.layoutVersion
+        if migrating {
+            // New order and widths; which tiles are shown stays as you had it.
+            tiles = TileConfig.defaults.map { config in
+                var config = config
+                if let old = tiles.first(where: { $0.kind == config.kind }) { config.visible = old.visible }
+                return config
+            }
+        }
         for config in TileConfig.defaults where !tiles.contains(where: { $0.kind == config.kind }) {
             tiles.append(config)
         }
         self.tiles = tiles
+        if migrating { save(tiles, forKey: Keys.tiles) }      // didSet doesn't run in init
+        defaults.set(Self.layoutVersion, forKey: Keys.layoutVersion)
     }
+
+    /// Bumped when the default layout changes enough that saved layouts should start over.
+    private static let layoutVersion = 2
 
     // Stored as JSON strings, so they can be read and written with `defaults` too.
     private func save<T: Encodable>(_ value: T?, forKey key: String) {
@@ -307,5 +331,6 @@ final class Settings {
         static let prompterTextSize = "prompterTextSize"
         static let prompterWidth = "prompterWidth"
         static let chessOpponent = "chessOpponent"
+        static let layoutVersion = "layoutVersion"
     }
 }

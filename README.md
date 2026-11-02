@@ -90,31 +90,63 @@ app honours that, so try it once with a real screen share in Zoom, Teams or Meet
 
 Show or hide each tile, make it 1, 2 or 3 cells wide, and move it left or right: menu-bar icon → **Tiles**, or
 right-click a tile in the open island. If the tiles don't fit across the screen they wrap onto a second row.
+By default there are four tiles of two cells each (about 690 pt wide; about 520 pt while no music player is open),
+80 pt high, starting 6 pt under the notch.
 
 - **Music** (Spotify and Apple Music): the cover as a small vinyl record (the disc slides out while playing),
   title, artist, a progress bar (click to jump), elapsed and total time, previous / play-pause / next, and the
   current line of the lyrics, synced, from LRCLIB (cached on your Mac). With dark tiles the blurred cover fills the
-  tile; with light tiles the tile stays light. The app never launches Spotify or Music.
-- **Weather** (Open-Meteo): temperature, a still icon, city, high and low. Choose the city with
-  **Weather City…**. Refreshed when the island opens if the last reading is older than 30 minutes.
-- **Calendar · Batteries · Slack**: cards side by side; flip through them with a two-finger swipe on the
-  trackpad (they snap into place; dots show where you are).
-  1. **Calendar**: what's left of today (the next one highlighted, "In 25 min"). When nothing is left today, or
-     Calendar isn't connected, the card shows your **Claude limit** instead: 5-hour and weekly usage with when
-     each resets (Pro/Max plans; needs the status line below).
-  2. **Batteries**, like Apple's Batteries widget: this Mac, Bluetooth devices macOS reports while connected,
+  tile; with light tiles the tile stays light. The app never launches Spotify or Music. While neither Spotify
+  nor Music is open, the tile disappears and the island gets narrower.
+- **Weather** (Open-Meteo): two pages; swipe with two fingers like the cards. **Now**: temperature, a small
+  icon, city, high and low, and the chance of rain for each of the next 12 hours as bars (24 at three cells), or
+  "No rain next 12 h". **Week**: seven days (three at one cell) with icon, chance of rain from 20 %, high and
+  low. Choose the city with **Weather City…**. Refreshed when the island opens if the last reading is older than
+  30 minutes.
+- **Calendar · Claude · Batteries · Slack**: cards side by side; flip through them with a two-finger swipe on
+  the trackpad (they snap into place) or click a page dot.
+  1. **Calendar**: everything in the next 7 days from all calendars in the Calendar app, grouped by day
+     ("Today", "Tomorrow", …), the next one highlighted ("In 25 min", "Now"). Scroll up and down when there
+     are more. Google, Exchange and other calendars show up once they're added in System Settings → Internet
+     Accounts with Calendars turned on.
+  2. **Claude limit**: your 5-hour and weekly usage with when each resets (Pro/Max plans). It needs Claude Code
+     connected (menu → Claude Code → **Connect Claude Code…**) and updates after each Claude Code reply; a window
+     whose reset time has passed shows as renewed.
+  3. **Batteries**, like Apple's Batteries widget: this Mac, Bluetooth devices macOS reports while connected,
      Magic accessories, and, if you click **Show AirPods**, AirPods read from their Bluetooth broadcast
-     (asks for the Bluetooth permission; only models paired with this Mac and close by). iPhone, iPad and
-     Apple Watch can't be shown: macOS gives apps no way to read them.
-  3. **Slack**: your newest messages (not your own), with author, channel and time; click one to open it. Click
-     **Connect Slack** and paste a user token (see "Slack" below).
-- **Quick Controls**: Wi-Fi on/off (dots = signal strength), AirDrop (opens the AirDrop window; dots show who
-  can see this Mac: five for Everyone, three for Contacts Only), dark mode, volume and brightness (sliders), and
-  the app grid (Apps on macOS 26, Launchpad before). At one cell: Wi-Fi, dark mode, volume and brightness.
+     (asks for the Bluetooth permission; only models paired with this Mac and close by). When not all fit, the
+     fullest are left out, so the lowest is always shown. iPhone, iPad and Apple Watch can't be shown: macOS gives
+     apps no way to read them.
+  4. **Slack**: your newest messages (not your own), with author, channel and time; scroll for more, click one to
+     open it. Click **Connect Slack** and paste a user token (see "Slack" below).
+- **Quick Controls**: six buttons. Wi-Fi on/off (dots = signal strength); **AirDrop** with Apple's AirDrop
+  glyph (tinted while others can find this Mac): click it to choose Off, Contacts Only or Everyone, like Control
+  Center; dark mode; **Sound & Display** (volume and brightness sliders); **Chess** (opens the board); and
+  **Teleprompter** (opens the script window, or stops the teleprompter while it runs). At one cell: Wi-Fi,
+  AirDrop, Sound & Display and Teleprompter.
 - **Next Event** (hidden by default): the next Calendar event in the next 7 days; "In 25 min" and "Now" are
   highlighted.
 - **Focus Timer** (hidden by default): 25 minutes, start/pause and reset. It keeps running while the island is
   closed or the Mac sleeps, and ends with a bubble and a soft sound.
+
+## Chess against Claude
+
+Click the chess button in Quick Controls, or menu-bar icon → **Chess** → **Open Board**. The island opens a board under the notch:
+click one of your pieces (its moves show as dots), then where it should go. Pawns that reach the last rank become
+queens. Claude answers in a few seconds ("Claude is thinking…"); the move list, **Undo** (takes back your last move
+and Claude's answer), **Resign** and **New: White / Black** sit next to the board. Check, checkmate, stalemate,
+threefold repetition, the 50-move rule and bare kings are recognized.
+
+The board stays open until you click ✕, the notch, or anywhere outside it. The game carries on meanwhile and is
+saved, also across restarts; when Claude moves while the board is closed, a bubble tells you its move.
+
+Claude plays through **your own Claude Code login** (no API key): the app runs `claude -p` from
+`~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`, with the model you choose in menu → **Chess** (Haiku,
+Sonnet as the default, or Opus, the strongest). It runs in safe mode (your hooks, MCP servers and CLAUDE.md stay out,
+so the notch doesn't show these requests as Claude Code activity), with no tools and without saving a session, in
+`~/Library/Application Support/Custom Notch/Chess`. Each of Claude's moves counts toward your plan's usage.
+Claude's answer is always checked against the legal moves: after two illegal answers it plays a random legal move
+and says so. If Claude Code isn't installed or logged in, the board shows the error and a **Retry** button.
 
 ## Peeks
 
@@ -138,9 +170,12 @@ or **⌃⌥N** / **⌃⌥Y** from anywhere (registered only while a request is s
 **Answer in Terminal** hands it back to Claude Code's own prompt, which also happens by itself after 90 seconds.
 When Claude finishes, a "Done" bubble shows the project and how long it took.
 
-Add these lines to `~/.claude/settings.json` yourself (menu → Claude Code → **Copy Hook Settings** copies them).
-If the file already has a `"hooks"` section, add these five events inside it instead of replacing it, and keep
-the file valid JSON:
+The easy way: menu → Claude Code → **Connect Claude Code…**. After asking, it adds the hooks below and the status
+line (if you have none yet) to `~/.claude/settings.json`, keeps everything else, and saves the old file as
+`~/.claude/settings.json.backup-customnotch`. New Claude Code sessions pick it up.
+
+Or add these lines yourself (menu → Claude Code → **Copy Hook Settings** copies them). If the file already has a
+`"hooks"` section, add these five events inside it instead of replacing it, and keep the file valid JSON:
 
 ```json
 {
@@ -190,7 +225,9 @@ Menu-bar icon:
 - **Music**: show music in the notch, synced lyrics (lrclib.net), Spotify covers (off; i.scdn.co).
 - **Cards**: AirPods batteries over Bluetooth on/off, connect or disconnect Slack.
 - **Peeks**: charger, battery, Do Not Disturb.
-- **Claude Code**: show it in the notch, allow or deny from the notch, copy the hook settings.
+- **Claude Code**: connect it (adds the hooks and status line), show it in the notch, allow or deny from the
+  notch, copy the hook settings.
+- **Chess**: open the board, new game as White or Black, and which Claude model plays against you.
 - **Theme**: Automatic (dark tiles in dark mode, light tiles in light mode, switching live), Dark, or Light. The
   island itself stays black in every theme, and so does everything drawn straight on it: the pill, peeks, the
   teleprompter and the headings of the Claude Code panel. Only tiles and buttons change, in solid colours. The
@@ -235,13 +272,17 @@ No analytics, no accounts. The only network requests go to:
   Apple Music covers come from the Music app on your Mac.
 - **slack.com**, for the Slack card, **only after you connect Slack**: with your token, when the island opens,
   at most once a minute. The token stays in your keychain.
+- **Anthropic**, through your Claude Code CLI, **only while you play chess**: for each of Claude's moves, the
+  position, the moves so far and the legal moves.
 
 Calendar, battery and Claude Code data, your teleprompter script and your voice never leave the Mac. (Apple's
 speech model for a language may be downloaded once by macOS, without any audio.)
 
 ## What macOS doesn't allow, and what the app does instead
 
-- **AirDrop** can't be switched on or off by apps: the button opens the AirDrop window.
+- **AirDrop** has no public API: the app writes the same setting System Settings uses
+  (`com.apple.sharingd DiscoverableMode`) and restarts the sharing service, then reads it back. If macOS ever
+  ignores it, the tile says so.
 - **Brightness** has no public API: the app uses Apple's private DisplayServices framework (built-in display).
   It may stop working in a future macOS; the slider is then greyed out.
 - **Wi-Fi** shows on/off and signal strength only; the network name would need the Location permission.
@@ -282,7 +323,7 @@ its permissions. Then do two things yourself: remove the five `notch-hook` entri
 Run from the command line; none is reachable from the menu.
 
 - Open in a given state: `open ~/Applications/Custom\ Notch.app --args -preview expanded`
-  (or `compact`, `peek`, `peek-20`, `peek-10`, `peek-focus`, `city`, `script`, `prompter`; `prompter` uses a
+  (or `compact`, `peek`, `peek-20`, `peek-10`, `peek-focus`, `city`, `script`, `prompter`, `chess`; `prompter` uses a
   sample script if you have none yet).
 - Render every state in both themes to PNG and quit: `…/Contents/MacOS/CustomNotch -snapshot /tmp/notch-shots`
   (add `-live YES` for this Mac's real data instead of samples). This includes the script window, filled and
@@ -291,6 +332,7 @@ Run from the command line; none is reachable from the menu.
   recognition and script tracking as the teleprompter and prints where it thinks the speaker is (make one with
   `say -v Anna -o speech.aiff -f script.txt`); `-prompterRun YES` runs the fixed-speed scrolling without a screen;
   `-prompterLayers <file.png>` draws the teleprompter's text layers.
+- `-connectClaude YES` does what **Connect Claude Code…** does, without asking, prints the result and quits.
 - `-lyrics "Coldplay|Yellow|Parachutes|267"` looks up lyrics (cache first);
   `-parseProximity <hex>` decodes an AirPods Bluetooth broadcast; `-slackCheck YES` tests Slack's error path
   with a made-up token; `-focusStatus YES`, `-batteryStatus YES`, `-loginStatus YES` print those states;
@@ -312,12 +354,14 @@ Run from the command line; none is reachable from the menu.
 | `Sources/CustomNotch/Tiles.swift` | Tile grid, tile right-click menu, shared tile pieces |
 | `Sources/CustomNotch/Music.swift` | AppleScript runner, Spotify / Music, lyrics (LRCLIB) and the Music tile |
 | `Sources/CustomNotch/Weather.swift` | Open-Meteo and the Weather tile |
-| `Sources/CustomNotch/Cards.swift` | The swipeable cards: calendar or Claude limit, batteries, Slack |
+| `Sources/CustomNotch/Cards.swift` | The swipeable cards: calendar (scrolling), batteries, Slack |
+| `Sources/CustomNotch/ClaudeTile.swift` | The Claude limit card |
 | `Sources/CustomNotch/Batteries.swift` | Mac, Bluetooth and accessory batteries, AirPods broadcast reader |
 | `Sources/CustomNotch/Slack.swift` | Slack Web API (newest messages) and the token in the keychain |
-| `Sources/CustomNotch/SystemControls.swift` | Wi-Fi, AirDrop, dark mode, volume, brightness, app grid and their tile |
+| `Sources/CustomNotch/SystemControls.swift` | Wi-Fi, AirDrop, dark mode, volume, brightness and the Quick Controls tile (chess, teleprompter buttons) |
 | `Sources/CustomNotch/CalendarAndTimer.swift` | Next event (EventKit), focus timer and their tiles |
 | `Sources/CustomNotch/Peeks.swift` | Charger, battery, Focus |
+| `Sources/CustomNotch/Chess.swift` | Chess: rules and legal moves, the game, Claude as the opponent (`claude -p`), board and panel |
 | `Sources/CustomNotch/ClaudeBridge.swift` | Claude Code: socket server, current step, permission requests, ⌃⌥ shortcuts |
 | `Sources/CustomNotch/Teleprompter.swift` | Teleprompter: script layout and scrolling, its island view, the script window (SwiftUI) |
 | `Sources/CustomNotch/VoiceFollow.swift` | Following your voice: microphone, on-device speech recognition, finding your place |

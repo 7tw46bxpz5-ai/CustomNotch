@@ -12,7 +12,9 @@ struct ExpandedView: View {
         let rows = model.rows(for: model.settings.tiles)
         VStack(spacing: Metrics.gap) {
             if rows.isEmpty {
-                Text("All tiles are hidden. Turn them on from the menu bar icon → Tiles.")
+                Text(model.settings.tiles.contains(where: \.visible)
+                     ? "Open Spotify or Music to see what's playing."
+                     : "All tiles are hidden. Turn them on from the menu bar icon → Tiles.")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.darkMatte.secondary)      // straight on the black island
                     .frame(height: Metrics.tileHeight)
@@ -83,7 +85,8 @@ struct TileContent: View {
         case .weather:
             WeatherTile(weather: services.weather, cells: tile.cells, palette: palette, chooseCity: services.chooseCity)
         case .controls:
-            ControlsTile(controls: services.controls, cells: tile.cells, palette: palette)
+            ControlsTile(controls: services.controls, cells: tile.cells, palette: palette,
+                         openChess: services.openChess, openPrompter: services.openPrompter)
         case .music:
             MusicTile(music: services.music, cells: tile.cells, palette: palette)
         case .cards:
@@ -92,8 +95,6 @@ struct TileContent: View {
             CalendarTile(calendar: services.calendar, cells: tile.cells, palette: palette)
         case .timer:
             FocusTimerTile(timer: services.timer, cells: tile.cells, palette: palette)
-        case .chess:
-            ChessTile(game: services.chess, cells: tile.cells, palette: palette, open: services.openChess)
         }
     }
 }

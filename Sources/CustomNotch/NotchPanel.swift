@@ -295,6 +295,21 @@ final class IslandController {
         scheduleShrink(to: target, keeping: .expanded)
     }
 
+    /// Hides or shows tiles that have nothing to show (music when no player is open), resizing like `apply`.
+    func setUnavailable(_ kinds: Set<TileKind>) {
+        guard kinds != model.unavailableTiles else { return }
+        guard model.state == .expanded else { model.unavailableTiles = kinds; return }
+        shrinkWork?.cancel()
+        let saved = model.unavailableTiles
+        model.unavailableTiles = kinds
+        let target = windowRect(island: islandRect(size: model.expandedSize(for: model.settings.tiles)), open: true)
+        model.unavailableTiles = saved
+        panel.setFrame(panel.frame.union(target), display: false)
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { model.unavailableTiles = kinds }
+        updateTracking()
+        scheduleShrink(to: target, keeping: .expanded)
+    }
+
     // MARK: State machine
 
     private var idleState: IslandState { model.compact != nil ? .compact : .resting }

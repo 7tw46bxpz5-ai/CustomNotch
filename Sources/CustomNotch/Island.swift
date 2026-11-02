@@ -49,13 +49,13 @@ enum Metrics {
     static let peekWing: CGFloat = 72
     static let peekHeight: CGFloat = 44
     static let peekEar: CGFloat = 8
-    static let islandRadius: CGFloat = 30       // concentric with the tiles: tile radius 14 + side padding 16
-    static let sidePadding: CGFloat = 16
-    static let topGap: CGFloat = 15             // between the notch and the tiles
-    static let bottomPadding: CGFloat = 15
+    static let islandRadius: CGFloat = 24       // concentric with the tiles: tile radius 14 + side padding 10
+    static let sidePadding: CGFloat = 10
+    static let topGap: CGFloat = 6              // between the notch and the tiles (kept small: less screen covered)
+    static let bottomPadding: CGFloat = 10
     static let cell: CGFloat = 77
     static let gap: CGFloat = 8
-    static let tileHeight: CGFloat = 88
+    static let tileHeight: CGFloat = 80
     static let tileRadius: CGFloat = 14
     static let shadowMargin: CGFloat = 28
     static let screenMargin: CGFloat = 24       // keeps a wide island off the screen edges
@@ -76,6 +76,8 @@ final class IslandModel {
     var pinned = false
     var peek: PeekContent?
     var compact: CompactContent?
+    /// Tiles that are switched on but have nothing to show right now (music while no player is open).
+    var unavailableTiles: Set<TileKind> = []
 
     @ObservationIgnored let settings: Settings
     @ObservationIgnored var claude: ClaudeBridge?
@@ -96,7 +98,7 @@ final class IslandModel {
         let maxWidth = geometry.screenFrame.width - 2 * (Metrics.screenMargin + Metrics.sidePadding)
         var rows: [[TileConfig]] = []
         var current: [TileConfig] = []
-        for tile in tiles where tile.visible {
+        for tile in tiles where tile.visible && !unavailableTiles.contains(tile.kind) {
             let candidate = current + [tile]
             if !current.isEmpty && Metrics.rowWidth(candidate.map(\.cells)) > maxWidth {
                 rows.append(current)

@@ -201,6 +201,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             settings.claudeApprovals.toggle()
         }
         approvals.state = settings.claudeApprovals ? .on : .off
+        let connected = ClaudeBridge.isConnected
+        let connect = action(connected ? "Connected to Claude Code" : "Connect Claude Code…") { [unowned self] in
+            connectClaude()
+        }
+        connect.state = connected ? .on : .off
+        connect.isEnabled = !connected
         let copy = action("Copy Hook Settings for ~/.claude/settings.json") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(ClaudeBridge.settingsSnippet, forType: .string)
@@ -209,7 +215,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(ClaudeBridge.statusLineSnippet, forType: .string)
         }
-        [status, approvals, .separator(), copy, copyStatusLine].forEach(submenu.addItem)
+        submenu.autoenablesItems = false
+        [connect, .separator(), status, approvals, .separator(), copy, copyStatusLine].forEach(submenu.addItem)
         item.submenu = submenu
         return item
     }
@@ -327,6 +334,37 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         })
     }
 
+    /// Adds the notch's hooks and status line to ~/.claude/settings.json, after asking.
+    func connectClaude() {
+        guard !ClaudeBridge.isConnected else { return }
+        NSApp.activate()
+        let ask = NSAlert()
+        ask.messageText = "Connect Claude Code to the notch?"
+        ask.informativeText = """
+            Custom Notch adds its hooks and status line to ~/.claude/settings.json. Your other settings and hooks \
+            stay as they are, and a backup is saved next to the file.
+
+            Then the notch shows what Claude Code is doing, lets you allow or deny its requests, and shows your \
+            plan limits. New Claude Code sessions pick this up.
+            """
+        ask.addButton(withTitle: "Connect")
+        ask.addButton(withTitle: "Cancel")
+        guard ask.runModal() == .alertFirstButtonReturn else { return }
+        let done = NSAlert()
+        do {
+            let connection = try ClaudeBridge.connect()
+            done.messageText = "Claude Code is connected"
+            done.informativeText = connection.addedStatusLine
+                ? "Start a new Claude Code session to see it in the notch. The Claude limit card fills in after its first reply."
+                : "Start a new Claude Code session to see it in the notch. You already have a status line, so it was kept; for the Claude limit card, use Copy Status Line Setting."
+        } catch {
+            done.alertStyle = .warning
+            done.messageText = "Couldn't connect Claude Code"
+            done.informativeText = error.localizedDescription
+        }
+        done.runModal()
+    }
+
     /// Asks for the weather city and looks it up with Open-Meteo.
     func chooseCity() {
         let hasCity = settings.weatherLocation != nil
@@ -385,6 +423,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             // Testing aid: starts with the sample script when there is none yet.
             if Teleprompter.words(in: services.prompter.script).isEmpty { services.prompter.script = Teleprompter.sampleScript }
             services.prompter.start()
+        case "chess":
+            services.openChess()
         default:
             island.setCompact(nil)
             island.collapse()

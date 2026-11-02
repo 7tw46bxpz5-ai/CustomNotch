@@ -26,6 +26,8 @@ final class Services {
     let prompter: Teleprompter
     let chess: ChessGame
     var openChess: () -> Void = {}
+    /// The teleprompter button: opens the script window, or stops a running teleprompter.
+    var openPrompter: () -> Void = {}
     var chooseCity: () -> Void = {}
     var connectSlack: () -> Void = {}
 
@@ -87,6 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.batteries.islandClosed()
         }
         services.music.onChange = { [weak self] in self?.updateCompact() }
+        // The music tile only shows while Spotify or Music is open.
+        let updateMusicTile = { [weak island, weak music = services.music] in
+            guard let island, let music else { return }
+            island.setUnavailable(music.runningPlayers.isEmpty ? [.music] : [])
+        }
+        services.music.onPlayersChange = updateMusicTile
+        updateMusicTile()
         menu.onMusicSettingsChanged = { [weak self] in
             self?.services.music.settingsChanged()
             self?.updateCompact()
@@ -121,8 +130,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.island.hidePrompter()
         }
         prompter.onNeedsScript = { [weak menu] in menu?.editScript() }
+        services.openPrompter = { [weak self] in
+            guard let self else { return }
+            if prompter.isActive {
+                prompter.stop()
+            } else {
+                island.collapse()
+                menu.editScript()
+            }
+        }
 
-        // Chess against Claude: the board opens from its tile or the menu. When Claude moves while the board
+        // Chess against Claude: the board opens from its Quick Controls button or the menu. When Claude moves while the board
         // is closed, a bubble says so.
         services.openChess = { [weak self] in
             guard let self else { return }

@@ -22,6 +22,9 @@ final class CalendarService {
     private(set) var next: Event?
     /// What's left of today (for the cards); empty means the card shows the Claude limit instead.
     private(set) var today: [Event] = []
+    /// Everything that hasn't ended in the next 7 days, from all calendars in the Calendar app (iCloud, Google,
+    /// Exchange… whatever is added in System Settings → Internet Accounts), sorted by start.
+    private(set) var upcoming: [Event] = []
 
     @ObservationIgnored private let store = EKEventStore()
     @ObservationIgnored private let isPreview: Bool
@@ -30,6 +33,7 @@ final class CalendarService {
         isPreview = preview != nil || previewToday != nil
         next = preview
         today = previewToday ?? preview.map { [$0] } ?? []
+        upcoming = previewToday ?? preview.map { [$0] } ?? []
         access = isPreview ? .granted : Self.currentAccess()
         guard !isPreview else { return }
         NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
@@ -61,7 +65,7 @@ final class CalendarService {
     func refresh() {
         guard !isPreview else { return }
         access = Self.currentAccess()
-        guard access == .granted else { next = nil; today = []; return }
+        guard access == .granted else { next = nil; today = []; upcoming = []; return }
         let now = Date()
         let start = Calendar.current.startOfDay(for: now)
         let predicate = store.predicateForEvents(withStart: start, end: now.addingTimeInterval(7 * 86_400), calendars: nil)
@@ -79,6 +83,7 @@ final class CalendarService {
         today = upcoming.filter { $0.startDate < endOfToday }
             .sorted { ($0.isAllDay ? 1 : 0, $0.startDate) < ($1.isAllDay ? 1 : 0, $1.startDate) }
             .map(make)
+        self.upcoming = upcoming.map(make)
     }
 }
 
@@ -191,9 +196,10 @@ struct CalendarTile: View {
             switch calendar.access {
             case .notAsked:
                 message(title: "Next Event", detail: cells > 1 ? "From your calendars." : nil,
-                        button: "Connect Calendar", action: calendar.requestAccess)
+                        button: cells > 1 ? "Connect Calendar" : "Connect", action: calendar.requestAccess)
             case .denied:
-                message(title: "Calendar access is off", detail: nil, button: "Open Settings", action: calendar.openSettings)
+                message(title: "Access is off", detail: nil, button: cells > 1 ? "Open Settings" : "Settings",
+                        action: calendar.openSettings)
             case .granted:
                 if let event = calendar.next {
                     TimelineView(.everyMinute) { context in eventView(event, now: context.date) }
@@ -207,12 +213,9 @@ struct CalendarTile: View {
 
     private func eventView(_ event: CalendarService.Event, now: Date) -> some View {
         let (when, soon) = Self.relative(event, now: now, short: cells == 1)
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar").font(.system(size: 10, weight: .medium))
-                Text(when).font(.system(size: 10.5, weight: .medium))
-            }
-            .foregroundStyle(soon ? palette.accent : palette.secondary)
+        return VStack(alignment: .leading, spacing: 2) {
+            header(when, tint: soon ? palette.accent : palette.secondary)
+                .padding(.bottom, 2)
             Text(event.title)
                 .font(.system(size: cells == 1 ? 11.5 : 13, weight: .semibold))
                 .foregroundStyle(palette.text)
@@ -226,26 +229,43 @@ struct CalendarTile: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.top, 9)
+        .padding(.top, 7)
     }
 
+    /// The small calendar symbol and a word, as the first line of every state (sized like the cards' headers,
+    /// so the two line up side by side).
+    private func header(_ text: String?, tint: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "calendar").font(.system(size: 10, weight: .semibold))
+            if let text { Text(text).font(.system(size: 10.5, weight: .semibold)).lineLimit(1) }
+        }
+        .foregroundStyle(tint)
+        .frame(height: 12)
+    }
+
+    /// Same rhythm as an event: header, a title, then a detail line or a button.
     private func message(title: String, detail: String?, button: String?, action: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: "calendar").font(.system(size: 14, weight: .medium)).foregroundStyle(palette.secondary)
-                .padding(.bottom, 1)
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.text)
+        VStack(alignment: .leading, spacing: 2) {
+            header(cells > 1 ? "Calendar" : nil, tint: palette.secondary)
+                .padding(.bottom, 2)
+            Text(title)
+                .font(.system(size: cells == 1 ? 11.5 : 13, weight: .semibold))
+                .foregroundStyle(palette.text)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             if let detail {
                 Text(detail).font(.system(size: 10.5)).foregroundStyle(palette.secondary).lineLimit(2)
             }
             if let button {
                 Button(action: action) {
-                    Text(button).font(.system(size: 10.5, weight: .medium)).foregroundStyle(palette.accent)
+                    Text(button).font(.system(size: 10.5, weight: .medium)).foregroundStyle(palette.accent).lineLimit(1)
                 }
                 .buttonStyle(.plain)
+                .padding(.top, 1)
             }
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.top, 7)
     }
 
     /// "Now" and "In 25 min" are highlighted; later events show the day.
@@ -283,8 +303,8 @@ struct FocusTimerTile: View {
         TimelineView(.animation(minimumInterval: 1, paused: !timer.isRunning)) { context in
             let remaining = timer.remaining(at: context.date)
             if cells == 1 {
-                VStack(spacing: 5) {
-                    ring(remaining, size: 52).onTapGesture(perform: timer.startPause)
+                VStack(spacing: 3) {
+                    ring(remaining, size: 48).onTapGesture(perform: timer.startPause)
                     if !timer.isReset {
                         Button("Reset", action: timer.reset)
                             .buttonStyle(.plain)
@@ -292,15 +312,14 @@ struct FocusTimerTile: View {
                             .foregroundStyle(palette.secondary)
                     }
                 }
-                .padding(.top, 9)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 HStack(spacing: cells == 3 ? 14 : 11) {
-                    ring(remaining, size: 62)
-                    VStack(alignment: .leading, spacing: 6) {
+                    ring(remaining, size: 60)
+                    VStack(alignment: .leading, spacing: 5) {
                         Text("Focus").font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.text)
                         // Side by side at three cells, stacked at two.
-                        let layout = cells == 3 ? AnyLayout(HStackLayout(spacing: 6)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
+                        let layout = cells == 3 ? AnyLayout(HStackLayout(spacing: 6)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
                         layout {
                             pill(timer.isRunning ? "Pause" : (timer.isReset ? "Start" : "Resume"), primary: true,
                                  action: timer.startPause)
@@ -311,7 +330,7 @@ struct FocusTimerTile: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
                 .frame(maxHeight: .infinity)
             }
         }
@@ -328,7 +347,7 @@ struct FocusTimerTile: View {
                         style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
-                .font(.system(size: size > 55 ? 13 : 11.5, weight: .medium).monospacedDigit())
+                .font(.system(size: size > 55 ? 13 : 11, weight: .medium).monospacedDigit())
                 .foregroundStyle(palette.text)
         }
         .frame(width: size, height: size)
@@ -343,7 +362,7 @@ struct FocusTimerTile: View {
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 9)
-                .padding(.vertical, 4)
+                .padding(.vertical, 3.5)
                 .background(primary ? palette.controlActive : palette.control, in: Capsule())
         }
         .buttonStyle(.plain)

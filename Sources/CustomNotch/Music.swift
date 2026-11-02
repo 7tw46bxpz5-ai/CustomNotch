@@ -94,6 +94,8 @@ final class MusicService {
 
     /// Called whenever the track or play state changes (drives the compact pill).
     @ObservationIgnored var onChange: (() -> Void)?
+    /// Called when Spotify or Music opens or quits (the music tile hides while neither is open).
+    @ObservationIgnored var onPlayersChange: (() -> Void)?
 
     @ObservationIgnored private let settings: Settings
     @ObservationIgnored private let lyricsStore = LyricsStore()
@@ -216,8 +218,9 @@ final class MusicService {
     // MARK: Notifications
 
     private func handle(_ player: Player, _ info: [AnyHashable: Any]) {
-        runningPlayers.insert(player)
         let state = (info["Player State"] as? String ?? "").lowercased()
+        // A "stopped" note can arrive after the player quit; it must not bring the music tile back.
+        if state != "stopped", runningPlayers.insert(player).inserted { onPlayersChange?() }
         if state == "stopped" || info["Name"] == nil {
             if track?.player == player { clearTrack() }
             return
@@ -255,6 +258,7 @@ final class MusicService {
             runningPlayers.remove(player)
             if track?.player == player { clearTrack() }
         }
+        onPlayersChange?()
     }
 
     private func clearTrack() {
@@ -551,11 +555,11 @@ struct MusicTile: View {
         if let track = music.track {
             switch cells {
             case 1: small
-            case 2: layout(track, cover: 52, column: 66, top: 17, large: false)
-            default: layout(track, cover: 69, column: 122, top: 9.5, large: true)
+            case 2: layout(track, cover: 52, column: 66, large: false)
+            default: layout(track, cover: 60, column: 132, large: true)
             }
         } else if let notice = music.notice {
-            NoticeView(notice: notice, palette: palette, open: { NSWorkspace.shared.open($0) }).padding(10)
+            FittedNotice(notice: notice, compact: cells == 1, palette: palette, open: { NSWorkspace.shared.open($0) })
         } else {
             idle
         }
@@ -563,11 +567,10 @@ struct MusicTile: View {
 
     private var label: Color { music.labelColor.map(Color.init(nsColor:)) ?? palette.secondary }
 
-    /// Cover and vinyl on the left, text and controls on the right (sizes from the reference screenshot).
-    private func layout(_ track: MusicService.Track, cover: CGFloat, column: CGFloat, top: CGFloat, large: Bool) -> some View {
-        HStack(alignment: .top, spacing: 0) {
+    /// Cover and vinyl on the left, text and controls on the right, both centred in the tile's height.
+    private func layout(_ track: MusicService.Track, cover: CGFloat, column: CGFloat, large: Bool) -> some View {
+        HStack(alignment: .center, spacing: 0) {
             VinylCover(artwork: music.artwork, label: label, playing: music.isPlaying, size: cover, palette: palette)
-                .padding(.top, top)
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 0) {
                 titleRow(track, size: large ? 11 : 10.5, withArtist: large)
@@ -575,39 +578,41 @@ struct MusicTile: View {
                     let position = music.position(at: context.date)
                     VStack(alignment: .leading, spacing: 0) {
                         secondRow(track, position: position, size: large ? 10 : 9.5)
-                        ProgressBar(fraction: track.duration > 0 ? position / track.duration : 0,
-                                    palette: palette, onSeek: music.seek)
+                        let bar = ProgressBar(fraction: track.duration > 0 ? position / track.duration : 0,
+                                              palette: palette, onSeek: music.seek)
                             .frame(height: 3.2)
-                            .padding(.top, large ? 7 : 6)
                         if large {
-                            HStack {
-                                Text(Self.time(position))
-                                Spacer()
-                                Text(Self.time(track.duration))
+                            // Elapsed and total time flank the bar, one row instead of two.
+                            HStack(spacing: 6) {
+                                Text(Self.time(position)).frame(minWidth: 22, alignment: .leading)
+                                bar
+                                Text(Self.time(track.duration)).frame(minWidth: 22, alignment: .trailing)
                             }
                             .font(.system(size: 9).monospacedDigit())
                             .foregroundStyle(palette.secondary)
-                            .padding(.top, 7.6)
+                            .padding(.top, 5)
+                        } else {
+                            bar.padding(.top, 6)
                         }
                     }
                 }
                 controls(size: large ? 12.5 : 11.5, spacing: large ? 16 : 11)
-                    .padding(.top, large ? 3.5 : 8)
+                    .padding(.top, large ? 6 : 7)
+                    .frame(maxWidth: .infinity, alignment: large ? .center : .leading)
             }
             .frame(width: column, alignment: .leading)
-            .padding(.top, large ? 9 : 15)
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
     }
 
     private var small: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 6) {
             VinylCover(artwork: music.artwork, label: label, playing: music.isPlaying, size: 42, palette: palette)
                 .offset(x: -7)      // centre cover and record together
             controls(size: 10, spacing: 9)
         }
-        .padding(.top, 9)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -633,7 +638,7 @@ struct MusicTile: View {
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(palette.text)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(9 / size)   // never below 9 pt
                 .id(line.index)
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.25), value: line.index)
@@ -664,32 +669,86 @@ struct MusicTile: View {
 
     private var idle: some View {
         let open = music.runningPlayers.map(\.name).sorted()
-        return VStack(alignment: .leading, spacing: 3) {
-            Image(systemName: "music.note")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(palette.secondary)
-                .padding(.bottom, 2)
-            Text("Nothing playing").font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.text)
-            Text(open.isEmpty ? "Open Spotify or Music to see it here." : "Play something in \(open.joined(separator: " or ")).")
-                .font(.system(size: 10.5))
-                .foregroundStyle(palette.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if !open.isEmpty && cells > 1 {
-                Button(action: music.connect) {
-                    Text("Show \(open.joined(separator: " & ")) Here")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(palette.accent)
+        let detail = open.isEmpty ? "Open Spotify or Music to see it here." : "Play something in \(open.joined(separator: " or "))."
+        return Group {
+            if cells == 1 {
+                // One cell: the symbol and the state; the hint is in the tooltip.
+                VStack(spacing: 5) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(palette.secondary)
+                    Text("Nothing playing")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.text)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .help(detail)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(palette.secondary)
+                        Text("Nothing playing").font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.text)
+                    }
+                    Text(detail)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(palette.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !open.isEmpty {
+                        Button(action: music.connect) {
+                            Text("Show \(open.joined(separator: " & ")) Here")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(palette.accent)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 3)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .padding(10)
     }
 
     static func time(_ seconds: Double) -> String {
         let total = Int(max(seconds, 0).rounded(.down))
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+/// A tile notice that fits the 80 pt tile: the text is clipped to a few lines (the full text is in the tooltip),
+/// and at one cell the button reads just "Settings". Used by the music and Quick Controls tiles.
+struct FittedNotice: View {
+    let notice: TileNotice
+    var compact = false
+    let palette: Palette
+    let open: (URL) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(notice.text)
+                .font(.system(size: compact ? 10 : 10.5))
+                .foregroundStyle(palette.text)
+                .lineLimit(notice.settings == nil ? 4 : 3)
+                .fixedSize(horizontal: false, vertical: true)
+            if let url = notice.settings {
+                Button { open(url) } label: {
+                    Text(compact ? "Settings" : "Open Settings")
+                        .font(.system(size: compact ? 10 : 10.5, weight: .medium))
+                        .foregroundStyle(palette.accent)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(compact ? 8 : 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .help(notice.text)
     }
 }
 

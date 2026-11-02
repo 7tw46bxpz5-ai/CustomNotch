@@ -16,49 +16,6 @@ enum DevTools {
             exit(0)
         }
 
-        // Development aid: `CustomNotch -chessPerft YES` counts the move generator's positions against the
-        // published perft numbers and quits.
-        if UserDefaults.standard.bool(forKey: "chessPerft") {
-            let cases: [(String, String, Int, Int)] = [
-                ("start", ChessPosition.startFEN, 4, 197_281),
-                ("kiwipete", "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 3, 97_862),
-                ("position 3", "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 4, 43_238),
-                ("position 4", "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 3, 9_467),
-                ("position 5", "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 3, 62_379),
-            ]
-            var failed = false
-            for (name, fen, depth, expected) in cases {
-                let count = ChessPosition(fen: fen)!.perft(depth)
-                failed = failed || count != expected
-                print("\(count == expected ? "OK  " : "FAIL") \(name) depth \(depth): \(count) (expected \(expected))")
-            }
-            exit(failed ? 1 : 0)
-        }
-
-        // Development aid: `CustomNotch -chessMove "<moves in UCI, space-separated>"` asks Claude (the chosen
-        // opponent) for the next move through the same code the game uses, prints it and quits.
-        if let list = UserDefaults.standard.string(forKey: "chessMove") {
-            var position = ChessPosition.start
-            var history: [String] = []
-            for move in list.split(separator: " ").compactMap({ ChessMove(uci: String($0)) }) {
-                history.append(position.san(move))
-                position = position.applying(move)
-            }
-            let model = Settings.shared.chessOpponent.model
-            Task { @MainActor in
-                let start = Date()
-                switch await ClaudeChessPlayer.chooseMove(position: position, history: history, model: model) {
-                case .success(let choice):
-                    print("\(model): \(position.san(choice.move)) (\(choice.move.uci)) in \(String(format: "%.1f", Date().timeIntervalSince(start))) s\(choice.note.map { " · \($0)" } ?? "")")
-                    exit(0)
-                case .failure(let failure):
-                    print("failed: \(failure.message)")
-                    exit(1)
-                }
-            }
-            return true
-        }
-
         // `CustomNotch -loginStatus YES` prints the Launch at Login state; `-unregisterLogin YES` turns it off
         // (used by scripts/uninstall.sh). Both quit afterwards.
         if UserDefaults.standard.bool(forKey: "loginStatus") || UserDefaults.standard.bool(forKey: "unregisterLogin") {
@@ -158,6 +115,19 @@ enum DevTools {
                 }
             }
             return true
+        }
+
+        // `CustomNotch -connectClaude YES` adds the hooks and status line to ~/.claude/settings.json (like the
+        // menu's Connect Claude Code…, without asking), prints the result and quits.
+        if UserDefaults.standard.bool(forKey: "connectClaude") {
+            do {
+                let connection = try ClaudeBridge.connect()
+                print("connected: \(ClaudeBridge.isConnected), backup: \(connection.backup?.path ?? "none"),",
+                      "status line added: \(connection.addedStatusLine)")
+            } catch {
+                print("failed: \(error.localizedDescription)")
+            }
+            exit(0)
         }
 
         // Development aid: `CustomNotch -hookSettings YES` prints the lines for ~/.claude/settings.json and quits.
@@ -300,8 +270,7 @@ enum Snapshot {
         settings.prompterWPM = 130
 
         let lisbon = WeatherLocation(name: "Lisbon", country: "Portugal", latitude: 38.72, longitude: -9.14)
-        let sample = WeatherService.Report(temperature: 18, code: 2, isDay: true, high: 20, low: 14,
-                                           fetched: Date(), location: lisbon)
+        let sample = WeatherService.Report.sample(location: lisbon)
         // Sample song, matching the reference screenshot.
         let track = MusicService.Track(player: .music, id: "sample", title: "Low Tide", artist: "Nova Lane",
                                        album: "Shoreline", duration: 214)
@@ -342,19 +311,13 @@ enum Snapshot {
             SlackService.Message(id: "2", author: "Lea", channel: "Lea", text: "Can we move the review to 4?",
                                  date: now.addingTimeInterval(-3_000)),
         ]
-        let italian = ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "d2d3", "f8c5"]
-        let chessSample = ChessGame(settings: settings, preview: italian)
         func makeServices(calendar: CalendarService, music: MusicService, prompter: Teleprompter? = nil,
-                          chess: ChessGame? = nil) -> Services {
-            Services(weather: WeatherService(settings: settings, preview: sample), controls: SystemControls(preview: true),
+                          controls: SystemControls? = nil) -> Services {
+            Services(weather: WeatherService(settings: settings, preview: sample), controls: controls ?? SystemControls(preview: true),
                      music: music, batteries: BatteryService(preview: devices),
                      slack: SlackService(preview: slackMessages, team: "Studio"), calendar: calendar,
                      timer: FocusTimer(preview: 18 * 60 + 42), claude: claude,
-                     prompter: prompter ?? Teleprompter(settings: settings, preview: Teleprompter.sampleScript),
-                     chess: chess ?? chessSample)
-        }
-        func playing(_ game: ChessGame) -> Services {
-            makeServices(calendar: CalendarService(preview: event, today: todayEvents), music: music(lyrics: nil), chess: game)
+                     prompter: prompter ?? Teleprompter(settings: settings, preview: Teleprompter.sampleScript))
         }
         // The teleprompter with the sample script, at a given moment.
         func prompting(_ phase: Teleprompter.Phase, at position: Double, spoken: Int? = nil) -> Services {
@@ -408,9 +371,10 @@ enum Snapshot {
             .setting(.controls, visible: false).setting(.cards, cells: 1).setting(.calendar, visible: true)
             .setting(.calendar, cells: 1).setting(.timer, visible: true).setting(.timer, cells: 1), services, sparkle)
         // The cards, one page each.
-        add("cards-claude", .expanded, defaults, freeDay, sparkle, 0)
-        add("cards-batteries", .expanded, defaults, services, sparkle, 1)
-        add("cards-slack", .expanded, defaults, services, sparkle, 2)
+        add("cards-calendar-empty", .expanded, defaults, freeDay, sparkle, 0)
+        add("cards-claude", .expanded, defaults, services, sparkle, 1)
+        add("cards-batteries", .expanded, defaults, services, sparkle, 2)
+        add("cards-slack", .expanded, defaults, services, sparkle, 3)
         add("prompter", .prompter, defaults, prompting(.running, at: 0), sparkle)
         add("prompter-scrolling", .prompter, defaults, prompting(.running, at: 1.5), sparkle)
         add("prompter-countdown", .prompter, defaults, prompting(.countdown(3), at: 0), sparkle)
@@ -418,12 +382,24 @@ enum Snapshot {
         add("prompter-voice", .prompter, defaults, prompting(.running, at: 1, spoken: 9), sparkle)
         add("prompter-preparing", .prompter, defaults, prompting(.preparing("Getting the microphone ready…"), at: 0, spoken: 0), sparkle)
         add("prompter-end", .prompter, defaults, prompting(.finished, at: Double(sampleLineCount() - 1)), sparkle)
-        add("chess", .chess, defaults, playing(ChessGame(settings: settings, preview: italian, selected: "f3")), sparkle)
-        add("chess-thinking", .chess, defaults, playing(ChessGame(settings: settings, preview: italian + ["c2c3"], thinking: true)), sparkle)
-        add("chess-black", .chess, defaults, playing(ChessGame(settings: settings, preview: ["e2e4", "c7c5", "g1f3"], player: .black)), sparkle)
-        add("chess-mate", .chess, defaults, playing(ChessGame(settings: settings, preview: ["f2f3", "e7e5", "g2g4", "d8h4"])), sparkle)
-        add("chess-tile-sizes", .expanded, defaults.setting(.music, visible: false).setting(.cards, visible: false)
-            .setting(.chess, cells: 3).setting(.timer, visible: true).setting(.timer, cells: 1), services, sparkle)
+        // The compact layout without music (no player open), the weather's week page, the weather at other
+        // sizes, and the Quick Controls panels.
+        add("expanded-no-music", .expanded, defaults, services, sparkle)
+        add("weather-week", .expanded, defaults, services, sparkle, 1)
+        let weatherSizes = defaults.setting(.weather, cells: 1).setting(.cards, cells: 3).setting(.controls, cells: 1)
+        add("weather-1-cell", .expanded, weatherSizes, services, sparkle)
+        add("weather-1-cell-week", .expanded, weatherSizes, services, sparkle, 1)
+        add("weather-3-cells", .expanded, defaults.setting(.weather, cells: 3).setting(.music, cells: 1), services, sparkle)
+        add("weather-3-cells-week", .expanded, defaults.setting(.weather, cells: 3).setting(.music, cells: 1), services, sparkle, 1)
+        func controlling(_ change: (SystemControls) -> Void) -> Services {
+            let controls = SystemControls(preview: true)
+            change(controls)
+            return makeServices(calendar: CalendarService(preview: event, today: todayEvents), music: music(lyrics: nil),
+                                controls: controls)
+        }
+        add("controls-airdrop", .expanded, defaults, controlling { $0.showingAirDrop = true }, sparkle)
+        add("controls-sliders", .expanded, defaults, controlling { $0.showingSliders = true }, sparkle)
+        add("controls-airdrop-1-cell", .expanded, weatherSizes, controlling { $0.showingAirDrop = true }, sparkle)
         add("cards-sizes", .expanded, defaults.setting(.music, cells: 2).setting(.cards, cells: 2)
             .setting(.controls, cells: 1).setting(.weather, cells: 1), services, sparkle, 1)
 
@@ -435,9 +411,9 @@ enum Snapshot {
                 let model = IslandModel(geometry: .detect(), settings: settings)
                 model.claude = job.services.claude
                 model.prompter = job.services.prompter
-                model.chess = job.services.chess
                 model.state = job.state
                 model.compact = job.compact
+                if job.name == "expanded-no-music" { model.unavailableTiles = [.music] }
                 switch job.name {
                 case "peek-battery10":
                     model.peek = PeekContent(symbol: "battery.0", title: "Battery 10%", subtitle: "Connect the charger soon",
@@ -500,34 +476,13 @@ enum Snapshot {
                 panel.appearance = NSAppearance(named: appearance)
                 panel.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
                 panel.orderFrontRegardless()
-                panel.makeKey()
+                panel.makeKey()             // as in real use: the panel is key, so Start shows the accent
                 RunLoop.main.run(until: Date().addingTimeInterval(0.5))
                 guard let view = panel.contentView?.superview,
                       let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
                 view.cacheDisplay(in: view.bounds, to: bitmap)
                 try? bitmap.representation(using: .png, properties: [:])?
                     .write(to: folder.appendingPathComponent("editor\(name)-\(look).png"))
-                if name == "", look == "light" {
-                    func find(_ v: NSView) -> ScriptNSTextView? { (v as? ScriptNSTextView) ?? v.subviews.lazy.compactMap(find).first }
-                    if let tv = find(view) {
-                        print("TEST firstResponder:", panel.firstResponder === tv)
-                        tv.setSelectedRange(NSRange(location: (tv.string as NSString).length, length: 0))
-                        tv.insertText(" Extra Wort", replacementRange: tv.selectedRange())
-                        print("TEST insert synced:", prompter.script.hasSuffix("Extra Wort"))
-                        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-                        tv.selectAll(nil); tv.delete(nil)
-                        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-                        print("TEST cleared:", prompter.script.isEmpty)
-                        print("TEST canUndo:", tv.undoManager?.canUndo ?? false, tv.undoManager?.groupingLevel ?? -1)
-                        tv.undoManager?.undo()
-                        print("TEST undo restored:", prompter.script.hasSuffix("Extra Wort"))
-                        let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
-                                                  windowNumber: panel.windowNumber, context: nil, characters: "\r",
-                                                  charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
-                        print("TEST cmd-return handled:", panel.performKeyEquivalent(with: ev), "phase:", prompter.phase)
-                        prompter.stop()
-                    }
-                }
                 panel.close()
                 withExtendedLifetime(editor) {}
             }

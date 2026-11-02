@@ -399,7 +399,7 @@ enum ChessOpponent: String, CaseIterable {
 
     var menuTitle: String {
         switch self {
-        case .haiku: return "Claude Haiku (fastest)"
+        case .haiku: return "Claude Haiku"
         case .sonnet: return "Claude Sonnet"
         case .opus: return "Claude Opus (strongest)"
         }
@@ -947,6 +947,7 @@ struct ChessView: View {
     let close: () -> Void
 
     private let onBlack = Palette.darkMatte     // headings straight on the black island
+    @Environment(\.staticRendering) private var staticRendering
 
     var body: some View {
         HStack(alignment: .top, spacing: ChessLayout.spacing) {
@@ -964,7 +965,7 @@ struct ChessView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Chess").font(.system(size: 13, weight: .semibold)).foregroundStyle(onBlack.text)
-                    Text("You: \(game.player.name) · vs \(game.opponent.name)")
+                    Text("vs \(game.opponent.name)")
                         .font(.system(size: 10)).foregroundStyle(onBlack.secondary)
                 }
                 Spacer(minLength: 4)
@@ -999,7 +1000,11 @@ struct ChessView: View {
                 pill("Retry", symbol: "arrow.clockwise") { game.retry() }
             } else if game.thinking {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
+                    if staticRendering {
+                        Image(systemName: "ellipsis").font(.system(size: 10, weight: .bold)).foregroundStyle(palette.accent)
+                    } else {
+                        ProgressView().controlSize(.mini)
+                    }
                     Text("Claude is thinking…").font(.system(size: 11.5, weight: .medium)).foregroundStyle(onBlack.text)
                 }
             } else {
@@ -1024,41 +1029,32 @@ struct ChessView: View {
         }
     }
 
+    /// The latest moves, newest at the bottom (as many as fit; no scrolling needed).
     private var moveList: some View {
         let rows = stride(from: 0, to: game.sans.count, by: 2).map { index in
             (number: index / 2 + 1, white: game.sans[index], black: index + 1 < game.sans.count ? game.sans[index + 1] : "")
         }
-        return ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if rows.isEmpty {
-                        Text(game.player == .white ? "You start. Pick a piece." : "Claude starts.")
-                            .font(.system(size: 10.5)).foregroundStyle(palette.secondary)
-                    }
-                    ForEach(rows, id: \.number) { row in
-                        HStack(spacing: 0) {
-                            Text("\(row.number).").foregroundStyle(palette.secondary).frame(width: 24, alignment: .leading)
-                            Text(row.white).foregroundStyle(palette.text).frame(width: 52, alignment: .leading)
-                            Text(row.black).foregroundStyle(palette.text)
-                        }
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .id(row.number)
-                    }
+        return VStack(alignment: .leading, spacing: 2) {
+            if rows.isEmpty {
+                Text(game.player == .white ? "You start. Pick a piece." : "Claude starts.")
+                    .font(.system(size: 10.5)).foregroundStyle(palette.secondary)
+            }
+            ForEach(rows.suffix(Self.visibleRows), id: \.number) { row in
+                HStack(spacing: 0) {
+                    Text("\(row.number).").foregroundStyle(palette.secondary).frame(width: 26, alignment: .leading)
+                    Text(row.white).foregroundStyle(palette.text).frame(width: 54, alignment: .leading)
+                    Text(row.black).foregroundStyle(palette.text)
                 }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .onChange(of: game.sans.count) {
-                if let last = rows.last { proxy.scrollTo(last.number, anchor: .bottom) }
-            }
-            .onAppear {
-                if let last = rows.last { proxy.scrollTo(last.number, anchor: .bottom) }
+                .font(.system(size: 10.5, design: .monospaced))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(palette.tile, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .environment(\.colorScheme, palette.colorScheme)
     }
+
+    private static let visibleRows = 6
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1089,54 +1085,6 @@ struct ChessView: View {
             .frame(height: 22)
             .background(palette.control, in: Capsule())
             .environment(\.colorScheme, palette.colorScheme)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// The tile: a small board with the state of the game; a click opens the big board.
-struct ChessTile: View {
-    let game: ChessGame
-    let cells: Int
-    let palette: Palette
-    let open: () -> Void
-
-    private var statusText: String {
-        if let outcome = game.outcome { return outcome.text(player: game.player) }
-        if game.problem != nil { return "Claude couldn't move" }
-        if game.thinking { return "Claude is thinking…" }
-        if game.moves.isEmpty { return "Play against Claude" }
-        if let san = game.claudesLastMove { return "Claude played \(san). Your move" }
-        return "Your move"
-    }
-
-    var body: some View {
-        Button(action: open) {
-            Group {
-                if cells == 1 {
-                    VStack(spacing: 4) {
-                        ChessBoardView(game: game, square: 7, interactive: false)
-                        Text("Chess").font(.system(size: 10, weight: .medium)).foregroundStyle(palette.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    HStack(alignment: .top, spacing: 10) {
-                        ChessBoardView(game: game, square: 8.5, interactive: false)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Chess").font(.system(size: 13, weight: .semibold)).foregroundStyle(palette.text)
-                            Text(statusText).font(.system(size: 10.5)).foregroundStyle(palette.secondary)
-                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 0)
-                            Text(game.moves.isEmpty || game.outcome != nil ? "Play" : "Continue")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(palette.accent)
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                }
-            }
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

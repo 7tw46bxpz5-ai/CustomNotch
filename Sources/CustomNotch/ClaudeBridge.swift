@@ -451,6 +451,90 @@ final class ClaudeBridge {
         """
     }
 
+    // MARK: Connecting Claude Code
+
+    static var settingsURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+    }
+
+    private static var hookCommand: String { "\"\(helperPath)\"" }
+
+    /// The hook events the notch listens to (PermissionRequest waits up to ten minutes for your answer).
+    private static let hookEvents: [(event: String, matcher: Bool, timeout: Int?)] = [
+        ("UserPromptSubmit", false, nil), ("PreToolUse", true, nil), ("PermissionRequest", true, 600),
+        ("Notification", false, nil), ("Stop", false, nil),
+    ]
+
+    /// Whether ~/.claude/settings.json already runs the notch's hooks and has a status line (the notch's, or one
+    /// of your own that Connect leaves alone).
+    static var isConnected: Bool {
+        guard let data = try? Data(contentsOf: settingsURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any] else { return false }
+        return root["statusLine"] != nil && hookEvents.allSatisfy { contains(hooks[$0.event]) }
+    }
+
+    private static func contains(_ entries: Any?) -> Bool {
+        guard let entries = entries as? [[String: Any]] else { return false }
+        return entries.contains { entry in
+            (entry["hooks"] as? [[String: Any]] ?? []).contains { ($0["command"] as? String)?.contains("notch-hook") == true }
+        }
+    }
+
+    struct Connection {
+        var backup: URL?            // the file as it was before the first connect
+        var addedStatusLine: Bool   // false when another status line was already set up
+    }
+
+    /// Adds the notch's hooks (and its status line, if there is none yet) to ~/.claude/settings.json, keeping
+    /// everything else. Before the first change the file is copied to settings.json.backup-customnotch (an
+    /// existing backup is never overwritten). Anything with an unexpected shape is left alone.
+    @discardableResult
+    static func connect() throws -> Connection {
+        let manager = FileManager.default
+        let helper = helperPath.replacingOccurrences(of: "$HOME", with: manager.homeDirectoryForCurrentUser.path)
+        guard manager.isExecutableFile(atPath: helper) else {
+            throw ConnectError("Custom Notch isn't installed in ~/Applications, so Claude Code couldn't reach it.")
+        }
+        let url = settingsURL.resolvingSymlinksInPath()      // a symlinked settings file stays a symlink
+        try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var root: [String: Any] = [:]
+        var backup: URL?
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw ConnectError("~/.claude/settings.json isn't valid JSON, so it was left alone.")
+            }
+            root = parsed
+            let copy = settingsURL.deletingLastPathComponent().appendingPathComponent("settings.json.backup-customnotch")
+            if !manager.fileExists(atPath: copy.path) { try data.write(to: copy) }
+            backup = copy
+        }
+        let unexpected = ConnectError("The hooks in ~/.claude/settings.json have an unexpected shape, so the file was left alone.")
+        if root["hooks"] != nil, !(root["hooks"] is [String: Any]) { throw unexpected }
+        var hooks = root["hooks"] as? [String: Any] ?? [:]
+        for (event, matcher, timeout) in hookEvents where !contains(hooks[event]) {
+            if hooks[event] != nil, !(hooks[event] is [[String: Any]]) { throw unexpected }
+            var hook: [String: Any] = ["type": "command", "command": hookCommand]
+            if let timeout { hook["timeout"] = timeout }
+            var entry: [String: Any] = ["hooks": [hook]]
+            if matcher { entry["matcher"] = "*" }
+            hooks[event] = (hooks[event] as? [[String: Any]] ?? []) + [entry]
+        }
+        root["hooks"] = hooks
+        let addedStatusLine = root["statusLine"] == nil
+        if addedStatusLine {
+            root["statusLine"] = ["type": "command", "command": "\(hookCommand) --statusline"]
+        }
+        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        try data.write(to: url, options: .atomic)
+        return Connection(backup: backup, addedStatusLine: addedStatusLine)
+    }
+
+    struct ConnectError: LocalizedError {
+        let errorDescription: String?
+        init(_ message: String) { errorDescription = message }
+    }
+
     /// The block to merge into ~/.claude/settings.json.
     static var settingsSnippet: String {
         let command = "\"\\\"\(helperPath)\\\"\""
