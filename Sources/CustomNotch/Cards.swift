@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The swipeable field: cards side by side, flipped with a two-finger swipe on the trackpad (they snap
-/// into place), with page dots like iOS. Order: upcoming events, the Claude limit, batteries, Slack.
+/// into place), with page dots like iOS. Order: the Claude limit, upcoming events, batteries, Slack.
 /// Lists inside a card scroll vertically; a horizontal swipe still flips the cards.
 struct CardsTile: View {
     let services: Services
@@ -9,7 +9,7 @@ struct CardsTile: View {
     let palette: Palette
 
     enum Card: Int, CaseIterable, Identifiable {
-        case agenda, claude, batteries, slack
+        case claude, agenda, batteries, slack
         var id: Int { rawValue }
     }
 
@@ -22,7 +22,7 @@ struct CardsTile: View {
         ZStack(alignment: .bottom) {
             if staticRendering {
                 // Snapshots can't draw a scroll view (an AppKit view): show one card.
-                card(Card(rawValue: snapshotPage) ?? .agenda)
+                card(Card(rawValue: snapshotPage) ?? .claude)
                     .frame(width: width, height: Metrics.tileHeight, alignment: .topLeading)
             } else {
                 ScrollView(.horizontal) {

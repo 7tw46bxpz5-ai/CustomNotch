@@ -371,8 +371,8 @@ enum Snapshot {
             .setting(.controls, visible: false).setting(.cards, cells: 1).setting(.calendar, visible: true)
             .setting(.calendar, cells: 1).setting(.timer, visible: true).setting(.timer, cells: 1), services, sparkle)
         // The cards, one page each.
-        add("cards-calendar-empty", .expanded, defaults, freeDay, sparkle, 0)
-        add("cards-claude", .expanded, defaults, services, sparkle, 1)
+        add("cards-claude", .expanded, defaults, services, sparkle, 0)
+        add("cards-calendar-empty", .expanded, defaults, freeDay, sparkle, 1)
         add("cards-batteries", .expanded, defaults, services, sparkle, 2)
         add("cards-slack", .expanded, defaults, services, sparkle, 3)
         add("prompter", .prompter, defaults, prompting(.running, at: 0), sparkle)
@@ -399,6 +399,7 @@ enum Snapshot {
         }
         add("controls-airdrop", .expanded, defaults, controlling { $0.showingAirDrop = true }, sparkle)
         add("controls-sliders", .expanded, defaults, controlling { $0.showingSliders = true }, sparkle)
+        add("controls-amphetamine", .expanded, defaults, controlling { $0.showingAmphetamine = true }, sparkle)
         add("controls-airdrop-1-cell", .expanded, weatherSizes, controlling { $0.showingAirDrop = true }, sparkle)
         add("cards-sizes", .expanded, defaults.setting(.music, cells: 2).setting(.cards, cells: 2)
             .setting(.controls, cells: 1).setting(.weather, cells: 1), services, sparkle, 1)

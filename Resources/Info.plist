@@ -23,7 +23,7 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Custom Notch controls Music and Spotify and switches dark mode through System Events.</string>
+    <string>Custom Notch controls Music and Spotify, starts and ends Amphetamine sessions, and switches dark mode through System Events.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>Custom Notch reads the battery level your AirPods broadcast, to show it in the island.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>

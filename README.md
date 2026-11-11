@@ -103,15 +103,15 @@ By default there are four tiles of two cells each (about 690 pt wide; about 520 
   "No rain next 12 h". **Week**: seven days (three at one cell) with icon, chance of rain from 20 %, high and
   low. Choose the city with **Weather City…**. Refreshed when the island opens if the last reading is older than
   30 minutes.
-- **Calendar · Claude · Batteries · Slack**: cards side by side; flip through them with a two-finger swipe on
+- **Claude · Calendar · Batteries · Slack**: cards side by side; flip through them with a two-finger swipe on
   the trackpad (they snap into place) or click a page dot.
-  1. **Calendar**: everything in the next 7 days from all calendars in the Calendar app, grouped by day
+  1. **Claude limit**: your 5-hour and weekly usage with when each resets (Pro/Max plans). It needs Claude Code
+     connected (menu → Claude Code → **Connect Claude Code…**) and updates after each Claude Code reply; a window
+     whose reset time has passed shows as renewed.
+  2. **Calendar**: everything in the next 7 days from all calendars in the Calendar app, grouped by day
      ("Today", "Tomorrow", …), the next one highlighted ("In 25 min", "Now"). Scroll up and down when there
      are more. Google, Exchange and other calendars show up once they're added in System Settings → Internet
      Accounts with Calendars turned on.
-  2. **Claude limit**: your 5-hour and weekly usage with when each resets (Pro/Max plans). It needs Claude Code
-     connected (menu → Claude Code → **Connect Claude Code…**) and updates after each Claude Code reply; a window
-     whose reset time has passed shows as renewed.
   3. **Batteries**, like Apple's Batteries widget: this Mac, Bluetooth devices macOS reports while connected,
      Magic accessories, and, if you click **Show AirPods**, AirPods read from their Bluetooth broadcast
      (asks for the Bluetooth permission; only models paired with this Mac and close by). When not all fit, the
@@ -119,11 +119,17 @@ By default there are four tiles of two cells each (about 690 pt wide; about 520 
      apps no way to read them.
   4. **Slack**: your newest messages (not your own), with author, channel and time; scroll for more, click one to
      open it. Click **Connect Slack** and paste a user token (see "Slack" below).
-- **Quick Controls**: six buttons. Wi-Fi on/off (dots = signal strength); **AirDrop** with Apple's AirDrop
+- **Quick Controls**: eight buttons. Wi-Fi on/off (dots = signal strength); **AirDrop** with Apple's AirDrop
   glyph (tinted while others can find this Mac): click it to choose Off, Contacts Only or Everyone, like Control
-  Center; dark mode; **Sound & Display** (volume and brightness sliders); **Chess** (opens the board); and
-  **Teleprompter** (opens the script window, or stops the teleprompter while it runs). At one cell: Wi-Fi,
-  AirDrop, Sound & Display and Teleprompter.
+  Center; dark mode; **Sound & Display** (volume and brightness sliders); **Chess** (opens the board);
+  **Teleprompter** (opens the script window, or stops the teleprompter while it runs); **Amphetamine** and
+  **Raycast**, with their app icons. At one cell: Wi-Fi, AirDrop, Sound & Display and Teleprompter.
+  - **Amphetamine**: its logo is in colour while it keeps the Mac awake, grey while it doesn't. Click it for
+    what its menu-bar icon offers for a session: **Awake** starts a session with the length set in
+    Amphetamine's Preferences, or ends the running one (it shows the time left, or "Indefinitely"); **∞ · 30m ·
+    1h · 2h · 4h** start a new session of that length; **Display Stays On** prevents or allows display sleep.
+    If Amphetamine isn't open, the click starts it in the background first.
+  - **Raycast**: opens Raycast's search window, like its hot key or **Open Raycast** in its menu.
 - **Next Event** (hidden by default): the next Calendar event in the next 7 days; "In 25 min" and "Now" are
   highlighted.
 - **Focus Timer** (hidden by default): 25 minutes, start/pause and reset. It keeps running while the island is
@@ -248,6 +254,7 @@ Each is asked only the first time its feature is used, never at launch:
 | Permission | Why | When |
 |---|---|---|
 | Automation → System Events | Switch dark mode | First tap on the dark-mode button |
+| Automation → Amphetamine | Read, start and end its session | First tap on the Amphetamine button |
 | Automation → Spotify / Music | Read the song, position and cover; play, pause, skip | First time the island opens while that player has music, or **Show … Here** in the Music tile |
 | Bluetooth | Read the battery level your AirPods broadcast | **Show AirPods** in the batteries card |
 | Calendar (full access) | Show your next event | **Connect Calendar** in the Next Event tile |
@@ -286,6 +293,11 @@ speech model for a language may be downloaded once by macOS, without any audio.)
 - **Brightness** has no public API: the app uses Apple's private DisplayServices framework (built-in display).
   It may stop working in a future macOS; the slider is then greyed out.
 - **Wi-Fi** shows on/off and signal strength only; the network name would need the Location permission.
+- **Amphetamine**'s scripting covers sessions by length, ending them and display sleep. "Until a specific time",
+  "While an app is running", "While a file is downloading", Triggers and its Preferences aren't offered in the
+  island: use its menu-bar icon for those.
+- **Raycast** has no scripting; the button opens its search window through its `raycast://` link. Raycast's own
+  menu-bar menu can't be read or copied without the Accessibility permission, which the app never asks for.
 - **iPhone, iPad and Apple Watch batteries** can't be read by Mac apps (Apple's own widget uses a private
   iCloud channel). **AirPods** levels are reverse-engineered from their Bluetooth broadcast, so not every model
   may show.
@@ -358,7 +370,7 @@ Run from the command line; none is reachable from the menu.
 | `Sources/CustomNotch/ClaudeTile.swift` | The Claude limit card |
 | `Sources/CustomNotch/Batteries.swift` | Mac, Bluetooth and accessory batteries, AirPods broadcast reader |
 | `Sources/CustomNotch/Slack.swift` | Slack Web API (newest messages) and the token in the keychain |
-| `Sources/CustomNotch/SystemControls.swift` | Wi-Fi, AirDrop, dark mode, volume, brightness and the Quick Controls tile (chess, teleprompter buttons) |
+| `Sources/CustomNotch/SystemControls.swift` | Wi-Fi, AirDrop, dark mode, volume, brightness, Amphetamine, Raycast and the Quick Controls tile (chess, teleprompter buttons) |
 | `Sources/CustomNotch/CalendarAndTimer.swift` | Next event (EventKit), focus timer and their tiles |
 | `Sources/CustomNotch/Peeks.swift` | Charger, battery, Focus |
 | `Sources/CustomNotch/Chess.swift` | Chess: rules and legal moves, the game, Claude as the opponent (`claude -p`), board and panel |

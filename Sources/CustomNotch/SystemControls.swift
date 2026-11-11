@@ -4,7 +4,7 @@ import AudioToolbox
 import CoreAudio
 @preconcurrency import CoreWLAN
 
-/// Wi-Fi, AirDrop, dark mode, volume and brightness.
+/// Wi-Fi, AirDrop, dark mode, volume and brightness; Amphetamine and Raycast, if installed.
 /// Nothing is monitored in the background: states are read when the island opens and after each action.
 @MainActor @Observable
 final class SystemControls {
@@ -38,6 +38,10 @@ final class SystemControls {
     var showingSliders = false
     /// The AirDrop choices (Off, Contacts Only, Everyone), shown in place of the buttons.
     var showingAirDrop = false
+    /// Amphetamine's session as last read (or as just set from here).
+    private(set) var amphetamine = AmphetamineSession()
+    /// Amphetamine's choices (start or end, how long, display sleep), shown in place of the buttons.
+    var showingAmphetamine = false
 
     /// Called after opening another app, so the island can close.
     @ObservationIgnored var onOpenedApp: (() -> Void)?
@@ -53,6 +57,7 @@ final class SystemControls {
         if preview {
             wifiOn = true; wifiBars = 4; airDrop = .contactsOnly; volume = 0.6; brightness = 0.7
             brightnessAvailable = true
+            amphetamine = AmphetamineSession(active: true, endsAt: Date().addingTimeInterval(3_540), duration: .hour1)
         }
     }
 
@@ -60,11 +65,20 @@ final class SystemControls {
         guard !isPreview else { return }
         showingSliders = false
         showingAirDrop = false
+        showingAmphetamine = false
         readWiFi()
         airDrop = Self.readAirDrop()
         darkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         readVolume()
         if let level = Brightness.get() { brightness = Double(level); brightnessAvailable = true }
+        // Only once Custom Notch may control Amphetamine: opening the island never shows a permission prompt.
+        if amphetamineApp.isRunning {
+            Task {
+                if await AppleScript.isAuthorized(amphetamineApp.bundleID) { await readAmphetamine(quietly: true) }
+            }
+        } else {
+            amphetamine = AmphetamineSession()
+        }
     }
 
     // MARK: Wi-Fi (CoreWLAN; the network name would need Location, so it is not read)
@@ -169,12 +183,130 @@ final class SystemControls {
 
     func showAirDrop() {
         showingSliders = false
+        showingAmphetamine = false
         showingAirDrop = true
     }
 
     func showSliders() {
         showingAirDrop = false
+        showingAmphetamine = false
         showingSliders = true
+    }
+
+    // MARK: Amphetamine (its AppleScript dictionary; needs the Automation permission once)
+
+    /// Opens the session choices, like a click on Amphetamine's menu-bar icon. If Amphetamine isn't open yet,
+    /// it is started in the background first (its menu-bar icon needs it running, too).
+    func showAmphetamine() {
+        guard !isPreview else { openAmphetaminePanel(); return }
+        guard let url = amphetamineApp.url else {
+            show("Amphetamine isn't installed. It's free in the Mac App Store.")
+            return
+        }
+        Task {
+            if !amphetamineApp.isRunning {
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = false
+                _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+                try? await Task.sleep(for: .seconds(1.5))      // its scripting is ready a moment after launch
+            }
+            if await readAmphetamine() { openAmphetaminePanel() }
+        }
+    }
+
+    private func openAmphetaminePanel() {
+        showingAirDrop = false
+        showingSliders = false
+        showingAmphetamine = true
+    }
+
+    /// Ends the running session, or starts one with Amphetamine's own default duration (its Preferences).
+    func toggleAmphetamine() {
+        if amphetamine.active {
+            amphetamine.active = false
+            amphetamine.duration = nil
+            runAmphetamine("end session")
+        } else {
+            amphetamine.active = true
+            amphetamine.endsAt = nil
+            amphetamine.duration = nil
+            runAmphetamine("start new session")
+        }
+    }
+
+    /// Starts a new session of this length; Amphetamine ends the current one first.
+    func startAmphetamine(_ duration: AmphetamineDuration) {
+        amphetamine.active = true
+        amphetamine.duration = duration
+        amphetamine.endsAt = duration.seconds.map { Date().addingTimeInterval($0) }
+        let displaySleep = amphetamine.displaySleepAllowed ? "true" : "false"
+        runAmphetamine("start new session with options {\(duration.options), displaySleepAllowed:\(displaySleep)}")
+    }
+
+    /// Whether the display may sleep: for the running session, or else for the next ones (Amphetamine's rule).
+    func setAmphetamineDisplaySleep(_ allowed: Bool) {
+        amphetamine.displaySleepAllowed = allowed
+        runAmphetamine(allowed ? "allow display sleep" : "prevent display sleep")
+    }
+
+    private func runAmphetamine(_ command: String) {
+        guard !isPreview else { return }
+        Task {
+            let result = await AppleScript.run("tell application id \"\(amphetamineApp.bundleID)\" to \(command)",
+                                               requiring: amphetamineApp.bundleID)
+            if result.errorNumber != nil { report(result) }
+            await readAmphetamine()
+        }
+    }
+
+    /// Reads the session from Amphetamine. Returns false (and, unless `quietly`, explains why in the tile) if it couldn't.
+    @discardableResult
+    private func readAmphetamine(quietly: Bool = false) async -> Bool {
+        let source = """
+        tell application id "\(amphetamineApp.bundleID)"
+            return {session is active, session time remaining, display sleep allowed}
+        end tell
+        """
+        let result = await AppleScript.run(source, requiring: amphetamineApp.bundleID)
+        guard let list = result.descriptor, result.errorNumber == nil, list.numberOfItems == 3 else {
+            if !quietly { report(result) }
+            return false
+        }
+        let active = list.atIndex(1)?.booleanValue ?? false
+        // Seconds left; 0 while it runs indefinitely, negative without a session.
+        let remaining = Int(list.atIndex(2)?.int32Value ?? -1)
+        amphetamine.active = active
+        amphetamine.endsAt = active && remaining > 0 ? Date().addingTimeInterval(TimeInterval(remaining)) : nil
+        amphetamine.displaySleepAllowed = list.atIndex(3)?.booleanValue ?? false
+        if !active { amphetamine.duration = nil }
+        // A duration chosen here stays highlighted only while the session still matches it.
+        if let duration = amphetamine.duration, (duration.seconds == nil) != (amphetamine.endsAt == nil) {
+            amphetamine.duration = nil
+        }
+        return true
+    }
+
+    private func report(_ result: AppleScript.Result) {
+        if result.notAuthorized {
+            show("Amphetamine needs permission to be controlled by Custom Notch (Privacy & Security → Automation).",
+                 settings: URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"))
+        } else if result.errorNumber == -600 {
+            show("Amphetamine isn't running.")
+        } else {
+            show("Amphetamine didn't answer. Use its menu-bar icon instead.")
+        }
+    }
+
+    // MARK: Raycast (its URL scheme: "raycast://" opens the search window, like the hot key)
+
+    func openRaycast() {
+        guard !isPreview else { return }
+        guard raycastApp.url != nil, let url = URL(string: "raycast://") else {
+            show("Raycast isn't installed.")
+            return
+        }
+        NSWorkspace.shared.open(url)
+        onOpenedApp?()
     }
 
     // MARK: Dark mode (System Events, needs the Automation permission once)
@@ -246,6 +378,86 @@ final class SystemControls {
         DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
     }
 }
+
+// MARK: - Amphetamine and Raycast
+
+struct AmphetamineSession: Equatable {
+    var active = false
+    /// When a timed session ends; nil while it runs indefinitely (or none runs).
+    var endsAt: Date?
+    var displaySleepAllowed = false
+    /// The length chosen here, highlighted while that session runs.
+    var duration: AmphetamineDuration?
+
+    /// "Indefinitely", "1:05:12 left", "Off".
+    func status(at now: Date) -> String {
+        guard active else { return "Off" }
+        guard let endsAt else { return "Indefinitely" }
+        let seconds = max(Int(endsAt.timeIntervalSince(now).rounded(.up)), 0)
+        let (hours, minutes, rest) = (seconds / 3600, seconds / 60 % 60, seconds % 60)
+        return hours > 0 ? String(format: "%d:%02d:%02d left", hours, minutes, rest)
+                         : String(format: "%d:%02d left", minutes, rest)
+    }
+}
+
+/// The session lengths offered in the island; Amphetamine's menu has the same under Start New Session.
+enum AmphetamineDuration: CaseIterable, Equatable, Sendable {
+    case indefinitely, minutes30, hour1, hours2, hours4
+
+    var title: String {
+        switch self {
+        case .indefinitely: "∞"
+        case .minutes30: "30m"
+        case .hour1: "1h"
+        case .hours2: "2h"
+        case .hours4: "4h"
+        }
+    }
+
+    var spokenTitle: String {
+        switch self {
+        case .indefinitely: "Indefinitely"
+        case .minutes30: "30 minutes"
+        case .hour1: "1 hour"
+        case .hours2: "2 hours"
+        case .hours4: "4 hours"
+        }
+    }
+
+    var seconds: TimeInterval? {
+        switch self {
+        case .indefinitely: nil
+        case .minutes30: 1_800
+        case .hour1: 3_600
+        case .hours2: 7_200
+        case .hours4: 14_400
+        }
+    }
+
+    /// The record fields Amphetamine's `start new session with options` takes (0 and 0: indefinitely).
+    var options: String {
+        switch self {
+        case .indefinitely: "duration:0, interval:0"
+        case .minutes30: "duration:30, interval:minutes"
+        case .hour1: "duration:1, interval:hours"
+        case .hours2: "duration:2, interval:hours"
+        case .hours4: "duration:4, interval:hours"
+        }
+    }
+}
+
+/// An app found by its bundle identifier; its logo is the app icon, in colour.
+@MainActor
+struct InstalledApp {
+    let bundleID: String
+
+    var url: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) }
+    var isRunning: Bool { !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty }
+    var icon: NSImage? { url.map { NSWorkspace.shared.icon(forFile: $0.path) } }
+}
+
+@MainActor let amphetamineApp = InstalledApp(bundleID: "com.if.Amphetamine")
+@MainActor let raycastApp = InstalledApp(bundleID: "com.raycast.macos")
 
 // MARK: - CoreAudio
 
@@ -329,34 +541,39 @@ struct ControlsTile: View {
     var openChess: () -> Void = {}
     var openPrompter: () -> Void = {}
 
-    private enum Item { case wifi, airDrop, appearance, soundAndDisplay, chess, prompter }
+    private enum Item { case wifi, airDrop, appearance, soundAndDisplay, chess, prompter, amphetamine, raycast }
 
     var body: some View {
         // One inset all round; inner corners are concentric with the tile's (14 − inset).
         let padding: CGFloat = cells == 1 ? 6 : 7
         let spacing: CGFloat = 6
         let radius = Metrics.tileRadius - padding
-        let columns = cells == 1 ? 2 : 3
-        // One cell has room for four buttons; Dark Mode and Chess stay in the menu bar and the larger tile.
+        // One cell has room for four buttons; Dark Mode, Chess, Amphetamine and Raycast need the larger tile.
         let items: [Item] = cells == 1 ? [.wifi, .airDrop, .soundAndDisplay, .prompter]
-                                       : [.wifi, .airDrop, .appearance, .soundAndDisplay, .chess, .prompter]
+                                       : [.wifi, .airDrop, .appearance, .soundAndDisplay,
+                                          .chess, .prompter, .amphetamine, .raycast]
+        let columns = items.count / 2
         let width = (Metrics.tileWidth(cells: cells) - 2 * padding - CGFloat(columns - 1) * spacing) / CGFloat(columns)
         let height = (Metrics.tileHeight - 2 * padding - spacing) / 2
 
         Group {
             if let notice = controls.notice {
                 FittedNotice(notice: notice, compact: cells == 1, palette: palette, open: controls.openSettings)
-            } else if controls.showingAirDrop || controls.showingSliders {
+            } else if controls.showingAirDrop || controls.showingSliders || controls.showingAmphetamine {
                 // The chevron runs the full height from the tile's edge, so it is easy to hit even at one cell.
                 HStack(spacing: 0) {
                     BackButton(palette: palette, width: cells == 1 ? 16 : 26) {
                         controls.showingAirDrop = false
                         controls.showingSliders = false
+                        controls.showingAmphetamine = false
                     }
                     Group {
                         if controls.showingAirDrop {
                             // Three rows of 20 pt need a little more height than the grid's inset leaves.
                             AirDropPanel(controls: controls, compact: cells == 1, radius: radius, palette: palette)
+                                .padding(.vertical, padding - 1)
+                        } else if controls.showingAmphetamine {
+                            AmphetaminePanel(controls: controls, radius: radius, palette: palette)
                                 .padding(.vertical, padding - 1)
                         } else {
                             SlidersPanel(controls: controls, palette: palette, compact: cells == 1, radius: radius)
@@ -370,7 +587,7 @@ struct ControlsTile: View {
                     ForEach(0..<2, id: \.self) { row in
                         HStack(spacing: spacing) {
                             ForEach(0..<columns, id: \.self) { column in
-                                button(items[row * columns + column])
+                                button(items[row * columns + column], narrow: width < 40)
                                     .environment(\.controlRadius, radius)
                                     .frame(width: width, height: height)
                             }
@@ -384,7 +601,7 @@ struct ControlsTile: View {
     }
 
     @ViewBuilder
-    private func button(_ item: Item) -> some View {
+    private func button(_ item: Item, narrow: Bool) -> some View {
         switch item {
         case .wifi:
             ControlButton(icon: .symbol(controls.wifiOn ? "wifi" : "wifi.slash"), label: "Wi-Fi", value: controls.wifiOn ? "On" : "Off",
@@ -399,11 +616,20 @@ struct ControlsTile: View {
                           active: controls.darkMode, palette: palette, action: controls.toggleDarkMode)
         case .soundAndDisplay:
             ControlButton(icon: .pair(controls.muted ? "speaker.slash" : "speaker.wave.2", "sun.max"), label: "Sound & Display",
-                          compact: cells == 1, palette: palette, action: controls.showSliders)
+                          compact: narrow, palette: palette, action: controls.showSliders)
         case .chess:
             ControlButton(icon: .symbol("checkerboard.rectangle"), label: "Chess", palette: palette, action: openChess)
         case .prompter:
             ControlButton(icon: .symbol(PrompterSymbol.name), label: "Teleprompter", palette: palette, action: openPrompter)
+        case .amphetamine:
+            // Its logo in colour while it keeps the Mac awake, greyed out while it doesn't.
+            let session = controls.amphetamine
+            ControlButton(icon: amphetamineApp.icon.map { .appIcon($0, dimmed: !session.active) } ?? .symbol("pills.fill"),
+                          label: "Amphetamine", value: session.active ? "Keeping Awake" : "Off",
+                          active: session.active, palette: palette, action: controls.showAmphetamine)
+        case .raycast:
+            ControlButton(icon: raycastApp.icon.map { .appIcon($0, dimmed: false) } ?? .symbol("command"),
+                          label: "Raycast", palette: palette, action: controls.openRaycast)
         }
     }
 }
@@ -434,6 +660,8 @@ struct ControlButton: View {
         case image(NSImage)
         /// Two smaller symbols side by side, for a button that holds two controls.
         case pair(String, String)
+        /// An app's own icon, in its colours; `dimmed` greys it out (its feature is off).
+        case appIcon(NSImage, dimmed: Bool)
     }
 
     let icon: Icon
@@ -498,6 +726,14 @@ struct ControlButton: View {
                 Image(systemName: second)
             }
             .font(.system(size: compact ? 10 : 11.5, weight: .medium))
+        case .appIcon(let image, let dimmed):
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 22, height: 22)
+                .saturation(dimmed ? 0 : 1)
+                .opacity(dimmed ? 0.55 : 1)
         }
     }
 }
@@ -542,6 +778,78 @@ private struct AirDropPanel: View {
         .help("AirDrop: \(mode.title)")
         .accessibilityLabel("AirDrop: \(mode.title)")
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Amphetamine's choices, shown in place of the buttons: what its menu-bar icon offers for a session.
+/// Start or end it (with its default length), start one of a given length, and whether the display may sleep.
+private struct AmphetaminePanel: View {
+    let controls: SystemControls
+    var radius: CGFloat = 7
+    let palette: Palette
+
+    var body: some View {
+        let session = controls.amphetamine
+        VStack(spacing: 3) {
+            // The countdown ticks only while this panel is shown.
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                row(selected: session.active, help: session.active ? "End Session" : "Start New Session",
+                    action: controls.toggleAmphetamine) {
+                    Text("Awake").font(.system(size: 10.5, weight: session.active ? .semibold : .regular))
+                    Spacer(minLength: 4)
+                    Text(session.status(at: context.date))
+                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                        .foregroundStyle(session.active ? palette.accent : palette.secondary)
+                }
+            }
+            HStack(spacing: 3) {
+                ForEach(AmphetamineDuration.allCases, id: \.self) { duration in
+                    let selected = session.active && session.duration == duration
+                    Button { controls.startAmphetamine(duration) } label: {
+                        Text(duration.title)
+                            .font(.system(size: duration == .indefinitely ? 12 : 10,
+                                          weight: selected ? .semibold : .regular))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .foregroundStyle(selected ? palette.accent : palette.text)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(selected ? palette.controlActive : palette.control,
+                                        in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Start New Session: \(duration.spokenTitle)")
+                    .accessibilityLabel("Keep awake \(duration.spokenTitle)")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            row(selected: !session.displaySleepAllowed,
+                help: session.displaySleepAllowed ? "Prevent Display Sleep" : "Allow Display Sleep",
+                action: { controls.setAmphetamineDisplaySleep(!session.displaySleepAllowed) }) {
+                Text("Display Stays On").font(.system(size: 10.5))
+                Spacer(minLength: 4)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .opacity(session.displaySleepAllowed ? 0 : 1)
+            }
+        }
+    }
+
+    private func row<Label: View>(selected: Bool, help: String, action: @escaping () -> Void,
+                                  @ViewBuilder label: () -> Label) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) { label() }
+                .lineLimit(1)
+                .foregroundStyle(selected ? palette.accent : palette.text)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .background(selected ? palette.controlActive : palette.control,
+                            in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 

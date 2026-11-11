@@ -83,7 +83,7 @@ enum TileKind: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .music: return "Music"
         case .weather: return "Weather"
-        case .cards: return "Calendar · Claude · Batteries · Slack"
+        case .cards: return "Claude · Calendar · Batteries · Slack"
         case .controls: return "Quick Controls"
         case .calendar: return "Next Event"
         case .timer: return "Focus Timer"
